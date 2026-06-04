@@ -52,6 +52,8 @@ def parse_metadata(metadata_str: str) -> dict[str, str]:
         if "=" not in x:
             raise ParseError(f"Invalid metadata format: '{x}'")
         key, value = x.split("=", 1)
+        key = key.strip()
+        value = value.strip()
         data[key] = value
     return data
 
@@ -71,6 +73,17 @@ def parse_file(name_file: str) -> MapData:
             if "hub" in key:
                 j = value.find("[")
                 data = parse_metadata(value[j:])
+                if key == "start_hub":
+                    name, x, y, _ = value.split()
+                    x, y = int(x), int(y)
+                    start_zone = Zone(name, x, y,
+                                      data["zone"] if data["zone"] else None,
+                                      data["color"] if data["color"] else None,
+                                      data["max_drones"] if data["max_drones"]
+                                      else None,)
+                
+
+
 
     # except FileNotFoundError:
     #     raise ParseError("file not found or the path false")
