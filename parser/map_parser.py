@@ -58,10 +58,20 @@ def parse_metadata(metadata_str: str) -> dict[str, str]:
     return data
 
 
-def parse_file(name_file: str) -> MapData:
+def parse_file(file_name: str) -> MapData:
+    data = {
+        "nb_drones": None,
+        "start_hub": None,
+        "end_hub": None,
+        "zones": None,
+        "connections": None,
+    }
     # try:
-    with open(name_file, "r") as f:
+    with open(file_name, "r") as f:
         lines = f.read()
+        zones = {}
+        connections = []
+        new_lines = []
         for i, line in enumerate(lines, start=1):
             if not line or line.startswith("#"):
                 continue
@@ -70,20 +80,59 @@ def parse_file(name_file: str) -> MapData:
             key, value = line.split(":", 1)
             key = key.strip().lower()
             value = value.strip()
+            if key == "nb_drones":
+                try:
+                    data["nb_drones"] = int(value)
+                except ValueError:
+                    raise ParseError("the 'nb_drones' most be integer")
             if "hub" in key:
                 j = value.find("[")
-                data = parse_metadata(value[j:])
-                if key == "start_hub":
+                md = parse_metadata(value[j:])
+                if key == "start_hub" or key == "end_hub":
                     name, x, y, _ = value.split()
-                    x, y = int(x), int(y)
-                    start_zone = Zone(name, x, y,
-                                      data["zone"] if data["zone"] else None,
-                                      data["color"] if data["color"] else None,
-                                      data["max_drones"] if data["max_drones"]
-                                      else None,)
-                
-
-
+                    try:
+                        x, y = int(x), int(y)
+                    except ValueError:
+                        raise ParseError("the x and y most be interger")
+                    if key == "start_hub":
+                        data["start_hub"] = Zone(
+                            name, x, y,
+                            md["zone"] if md["zone"] else None,
+                            md["color"] if md["color"] else None,
+                            md["max_drones"] if md["max_drones"] else None)
+                    else:
+                        data["end_hub"] = Zone(
+                            name, x, y,
+                            md["zone"] if md["zone"] else None,
+                            md["color"] if md["color"] else None,
+                            md["max_drones"] if md["max_drones"] else None)
+                elif key == "hub":
+                    name, x, y, _ = value.split()
+                    try:
+                        x, y = int(x), int(y)
+                    except ValueError:
+                        raise ParseError("the x and y most be interger")
+                    zone = Zone(name, x, y,
+                                md["zone"] if md["zone"] else None,
+                                md["color"] if md["color"] else None,
+                                md["max_drones"] if md["max_drones"] else None)
+                    zones[name] = zone
+                else:
+                    raise ParseError("the line {i} in invalid ")
+            elif key == "connection":
+                new_lines.append(line)
+            else:
+                raise ParseError("the line {i} in invalid syntax")
+        for lin in new_lines:
+            _, value = line.split(":", 1)
+            value = value.strip()
+            names, _ = value.split()
+            if "-" not in names:
+                raise ParseError("most be in btw the names of zone '-'")
+            j = value.find("[")
+            md = parse_metadata(value[j:])
+            zone1, zone2 = names.split("-")
+            connection = Connection(zones[zone1],)
 
     # except FileNotFoundError:
     #     raise ParseError("file not found or the path false")
