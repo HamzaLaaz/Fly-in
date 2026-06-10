@@ -46,6 +46,8 @@ def parse_metadata(metadata_str: str) -> dict[str, str]:
         return {}
     data: dict[str, str] = {}
     cleaned = metadata_str.strip("[]")
+    if "[" in cleaned or "]" in cleaned:
+        raise ParseError("there is more thene one of '[]'")
     parts = cleaned.split(" ")
 
     for x in parts:
