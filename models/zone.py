@@ -36,3 +36,9 @@ class Zone:
         self.color = color
         self.max_drones = max_drones
         self.current_drones = 0
+
+    def get_movement_cost(self) -> int:
+        """Return the turn cost to enter this zone."""
+        if self.zone_type == ZoneType.RESTRICTED:
+            return 2
+        return 1
