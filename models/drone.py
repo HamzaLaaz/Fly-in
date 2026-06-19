@@ -52,3 +52,4 @@ class Drone:
         self.current_zone = current_zone
         self.path = path if path is not None else []
         self.status = status
+        self.path_index = 0
