@@ -1,10 +1,11 @@
 import heapq
-from models.zone import Zone, ZoneType
+
 from graph.graph import Graph
+from models.zone import Zone, ZoneType
 
 
 class Pathfinder:
-    """Finds shortest paths through the drone network."""
+    """Find shortest path using Dijkstra."""
 
     def find_path(
         self,
@@ -12,50 +13,51 @@ class Pathfinder:
         start: Zone,
         end: Zone
     ) -> list[Zone]:
-        """Find the cheapest path from start to end using Dijkstra.
 
-        Args:
-            graph: The zone network graph.
-            start: Starting zone.
-            end: Destination zone.
-
-        Returns:
-            List of zones from start to end (cheapest total cost).
-            Empty list if no path exists.
-        """
-        if start == end:
-            return [start]
-
-        # distances: cost to reach each zone (start with infinity)
-        distances: dict[Zone, int] = {start: 0}
-        parent: dict[Zone, Zone | None] = {start: None}
-
+        distances: dict[Zone, int] = {
+            zone: float("inf") for zone in graph.zones.values()
+        }
+        previous: dict[Zone, Zone | None] = {
+            zone: None for zone in graph.zones.values()
+        }
+        distances[start] = 0
         counter = 0
-        heap: list[tuple[int, int, Zone]] = [(0, counter, start)]
+        heap: list[tuple[int, int, Zone]] = []
+        heapq.heappush(heap, (0, counter, start))
 
         while heap:
-            current_cost, _, current = heapq.heappop(heap)
+            current_cost, _, current_zone = heapq.heappop(heap)
 
-            if current == end:
-                path = []
-                node: Zone | None = end
-                while node is not None:
-                    path.append(node)
-                    node = parent[node]
-                path.reverse()
-                return path
-
-            for neighbor in graph.get_neighbors(current):
-                if neighbor.zone_type == ZoneType.BLOCKED:
-                    continue
-
-                new_cost = current_cost + neighbor.get_movement_cost()
-
-                # relaxation step: only update if cheaper!
-                if neighbor not in distances or new_cost < distances[neighbor]:
+            if current_zone == end:
+                break
+            for neighbor in graph.get_neighbors(current_zone):
+                if neighbor.zone_type == ZoneType.RESTRICTED:
+                    move_cost = 2
+                else:
+                    move_cost = 1
+                new_cost = current_cost + move_cost
+                if new_cost < distances[neighbor]:
                     distances[neighbor] = new_cost
-                    parent[neighbor] = current
+                    previous[neighbor] = current_zone
                     counter += 1
                     heapq.heappush(heap, (new_cost, counter, neighbor))
 
-        return []
+        return self._build_path(previous, start, end)
+
+    def _build_path(
+        self,
+        previous: dict[Zone, Zone | None],
+        start: Zone,
+        end: Zone
+    ) -> list[Zone]:
+
+        path: list[Zone] = []
+        current: Zone | None = end
+        while current is not None:
+            path.append(current)
+            current = previous[current]
+        path.reverse()
+        if path[0] != start:
+            return []
+
+        return path
