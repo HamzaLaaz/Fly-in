@@ -25,7 +25,7 @@ class MapData:
         zones: dict[str, Zone],
         connections: list[Connection]
     ) -> None:
-        """Initialize MapData."""
+        """Initialize the parsed map data."""
         self.nb_drones = nb_drones
         self.start_zone = start_zone
         self.end_zone = end_zone
@@ -33,22 +33,17 @@ class MapData:
         self.connections = connections
 
 
-def parse_metadata(metadata_str: str) -> dict[str, str]:
-    """Parse metadata block into a dictionary.
-
-    Args:
-        metadata_str: Raw metadata string like "[zone=restricted color=red]"
-
-    Returns:
-        Dictionary of key-value pairs from metadata.
-    """
+def parse_metadata(metadata_str: str, type_line: str) -> dict[str, str]:
+    """Parse a metadata block into a dictionary of key-value pairs."""
     if not metadata_str.strip():
         return {}
+    if not metadata_str.startswith("[") or not metadata_str.endswith("]"):
+        raise ParseError("Invalid metadata brackets")
     data: dict[str, str] = {}
     cleaned = metadata_str.strip("[]")
     if "[" in cleaned or "]" in cleaned:
-        raise ParseError("there is more thene one of '[]'")
-    parts = cleaned.split(" ")
+        raise ParseError("Metadata contains unmatched or extra brackets")
+    parts = cleaned.split()
 
     for x in parts:
         if "=" not in x:
@@ -56,6 +51,8 @@ def parse_metadata(metadata_str: str) -> dict[str, str]:
         key, value = x.split("=", 1)
         key = key.strip()
         value = value.strip()
+        if key in data:
+            raise ParseError(f"duplicate metadata {key}")
         data[key] = value
     return data
 
@@ -84,56 +81,99 @@ def parse_file(file_name: str) -> MapData:
             for i, line in enumerate(lines, start=1):
                 if not line or line.startswith("#"):
                     continue
+                if "#" in line:
+                    j = line.find("#")
+                    line = line[:j]
+                line = line.strip()
+                if not line:
+                    continue
                 if ":" not in line:
                     raise ParseError(f"Line {i}: missing ':' in '{line}'")
                 key, value = line.split(":", 1)
                 key = key.strip().lower()
                 value = value.strip()
+                if not key:
+                    raise ParseError(f"Line {i}: missing key before ':'")
+                if not value:
+                    raise ParseError(f"Line {i}: missing value after ':'")
                 if key == "nb_drones":
+                    if nb_drones is not None:
+                        raise ParseError(f"Line {i}: Multiple nb_drones "
+                                         "definitions")
                     try:
                         nb_drones = int(value)
                         if nb_drones <= 0:
-                            raise ParseError("'nb_drones' must"
+                            raise ParseError(f"Line {i}: 'nb_drones' must "
                                              "be greater than 0")
                     except ValueError:
-                        raise ParseError("the 'nb_drones' most be integer and"
-                                         "great then 0")
-                elif "hub" in key:
+                        raise ParseError(f"Line {i}: 'nb_drones' must "
+                                         "be a positive integer")
+                elif key in ("hub", "start_hub", "end_hub"):
                     j = value.find("[")
                     metadata_str = value[j:] if j != -1 else ""
                     md = parse_metadata(metadata_str)
+                    allowed = {"zone", "color", "max_drones"}
+                    for k in md:
+                        if k not in allowed:
+                            raise ParseError(f"Line {i}: Invalid metadata")
                     parts = value.split()
+                    if len(parts) > 3 and "[" not in value:
+                        raise ParseError(f"Line {i}: unexpected data "
+                                         "after hub definition")
+                    if len(parts) < 3:
+                        raise ParseError(f"Line {i}: incomplete "
+                                         "hub definition")
                     name = parts[0]
+                    if "-" in name:
+                        raise ParseError(f"Line {i}: Zone names cannot "
+                                         "contain '-'")
                     if name in zones:
                         raise ParseError(f"Line {i}: duplicate "
                                          f"zone name '{name}'")
                     try:
                         x, y = int(parts[1]), int(parts[2])
                     except ValueError:
-                        raise ParseError("the x and y most be interger")
-                    max_drones_s = md.get("max_drones")
-                    max_drones = int(max_drones_s) if max_drones_s else 1
+                        raise ParseError(f"Line {i}: coordinates must "
+                                         "be integers")
                     zone_type_str = md.get("zone", "normal")
                     try:
                         zone_type = ZoneType(zone_type_str)
                     except ValueError:
-                        raise ParseError(f"Line {i}: invalid zone"
+                        raise ParseError(f"Line {i}: invalid zone "
                                          f"type '{zone_type_str}'")
                     if key == "start_hub":
+                        if start_zone is not None:
+                            raise ParseError(f"Line {i}: Multiple "
+                                             "start_hub definitions")
                         start_zone = Zone(
                             name, x, y,
                             zone_type,
                             md.get("color"),
-                            max_drones)
+                            max_drones=float("inf"),
+                            is_start=True)
                         zones[name] = start_zone
                     elif key == "end_hub":
+                        if end_zone is not None:
+                            raise ParseError(f"Line {i}: Multiple "
+                                             "end_hub definitions")
                         end_zone = Zone(
                             name, x, y,
                             zone_type,
                             md.get("color"),
-                            max_drones)
+                            max_drones=float("inf"),
+                            is_end=True)
                         zones[name] = end_zone
                     elif key == "hub":
+                        max_drones_s = md.get("max_drones")
+                        try:
+                            max_drones = int(max_drones_s) \
+                                if max_drones_s else 1
+                        except ValueError:
+                            raise ParseError(f"Line {i}: max_drones"
+                                             " must be an integer")
+                        if max_drones <= 0:
+                            raise ParseError(f"Line {i}: max_drones"
+                                             " must be positive")
                         zone = Zone(
                             name, x, y,
                             zone_type,
@@ -141,33 +181,51 @@ def parse_file(file_name: str) -> MapData:
                             max_drones)
                         zones[name] = zone
                     else:
-                        raise ParseError(f"the line {i} in invalid ")
+                        raise ParseError(f"Line {i}: invalid zone definition")
                 elif key == "connection":
-                    new_lines.append(line)
+                    new_lines.append((i, line))
                 else:
-                    raise ParseError(f"the line {i} in invalid syntax")
-            for lin in new_lines:
+                    raise ParseError(f"Line {i}: invalid syntax")
+            for i, lin in new_lines:
                 _, value = lin.split(":", 1)
                 value = value.strip()
                 parts = value.split()
+                if len(parts) > 1 and "[" not in value:
+                    raise ParseError(f"Line {i}: unexpected data "
+                                     "after connection definition")
                 names = parts[0]
                 if "-" not in names:
-                    raise ParseError("most be in btw the names of zone '-'")
+                    raise ParseError(f"Line {i}: connection must be in "
+                                     "the form zone1-zone2")
+                parts = names.split("-")
+                if len(parts) != 2:
+                    raise ParseError(f"Line {i}: Invalid connection syntax")
                 j = value.find("[")
                 metadata_str = value[j:] if j != -1 else ""
                 md = parse_metadata(metadata_str)
+                allowed = {"max_link_capacity"}
+                for k in md:
+                    if k not in allowed:
+                        raise ParseError(f"Line {i}: invalid metadata")
                 zone1, zone2 = names.split("-")
                 if zone1 not in zones:
-                    raise ParseError(f"{zone1} there is not name  in zones")
+                    raise ParseError(f"Line {i}: unknown zone '{zone1}'")
                 if zone2 not in zones:
-                    raise ParseError(f"{zone2} there is not name  in zones")
+                    raise ParseError(f"Line {i}: unknown zone '{zone2}'")
                 for a in connections:
                     if (a.zone_a.name == zone1 and a.zone_b.name == zone2) or \
                        (a.zone_a.name == zone2 and a.zone_b.name == zone1):
-                        raise ParseError(f"Duplicate connection: "
+                        raise ParseError(f"Line {i}: Duplicate connection "
                                          f"'{zone1}-{zone2}'")
                 capacity_str = md.get("max_link_capacity")
-                m_lk_cap = int(capacity_str) if capacity_str else 1
+                try:
+                    m_lk_cap = int(capacity_str) if capacity_str else 1
+                except ValueError:
+                    raise ParseError(f"Line {i}: max_link_capacity "
+                                     "must be an integer")
+                if m_lk_cap <= 0:
+                    raise ParseError(f"Line {i}: max_link_capacity "
+                                     "must be positive")
                 connection = Connection(zones[zone1], zones[zone2], m_lk_cap)
                 connections.append(connection)
             if nb_drones is None:
@@ -184,6 +242,8 @@ def parse_file(file_name: str) -> MapData:
                 connections)
 
     except FileNotFoundError:
-        raise ParseError("file not found or the path false")
+        raise ParseError("File not found")
     except PermissionError:
-        raise ParseError("can't read from the file")
+        raise ParseError("Permission denied while reading the file")
+    except OSError as e:
+        raise ParseError(f"Cannot read file: {e}")
