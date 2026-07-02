@@ -33,27 +33,46 @@ class MapData:
         self.connections = connections
 
 
-def parse_metadata(metadata_str: str, type_line: str) -> dict[str, str]:
+def parse_metadata(metadata_str: str) -> dict[str, str]:
     """Parse a metadata block into a dictionary of key-value pairs."""
     if not metadata_str.strip():
         return {}
     if not metadata_str.startswith("[") or not metadata_str.endswith("]"):
         raise ParseError("Invalid metadata brackets")
-    data: dict[str, str] = {}
-    cleaned = metadata_str.strip("[]")
+    cleaned = metadata_str[1:-1].strip()
     if "[" in cleaned or "]" in cleaned:
         raise ParseError("Metadata contains unmatched or extra brackets")
-    parts = cleaned.split()
+    cleaned = cleaned.replace(" =", "=")
+    cleaned = cleaned.replace("= ", "=")
 
-    for x in parts:
-        if "=" not in x:
-            raise ParseError(f"Invalid metadata format: '{x}'")
-        key, value = x.split("=", 1)
-        key = key.strip()
-        value = value.strip()
+    # Repeat until no spaces remain around '='
+    while " =" in cleaned or "= " in cleaned:
+        cleaned = cleaned.replace(" =", "=")
+        cleaned = cleaned.replace("= ", "=")
+    tokens = cleaned.split()
+    data = {}
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        # Case: key=value
+        if "=" in token:
+            key, value = token.split("=", 1)
+            # Case: key=
+            if value == "":
+                raise ParseError(f"Missing value for metadata '{key}'")
+        # Case: key = value
+        else:
+            if i + 2 >= len(tokens):
+                raise ParseError(f"Invalid metadata format: '{token}'")
+            key = token
+            if tokens[i + 1] != "=":
+                raise ParseError(f"Invalid metadata format: '{token}'")
+            value = tokens[i + 2]
+            i += 2
         if key in data:
-            raise ParseError(f"duplicate metadata {key}")
+            raise ParseError(f"Duplicate metadata '{key}'")
         data[key] = value
+        i += 1
     return data
 
 
@@ -110,19 +129,20 @@ def parse_file(file_name: str) -> MapData:
                                          "be a positive integer")
                 elif key in ("hub", "start_hub", "end_hub"):
                     j = value.find("[")
-                    metadata_str = value[j:] if j != -1 else ""
+                    if j != -1:
+                        zone_part = value[:j].strip()
+                        metadata_str = value[j:]
+                    else:
+                        zone_part = value.strip()
+                        metadata_str = ""
                     md = parse_metadata(metadata_str)
                     allowed = {"zone", "color", "max_drones"}
                     for k in md:
                         if k not in allowed:
                             raise ParseError(f"Line {i}: Invalid metadata")
-                    parts = value.split()
-                    if len(parts) > 3 and "[" not in value:
-                        raise ParseError(f"Line {i}: unexpected data "
-                                         "after hub definition")
-                    if len(parts) < 3:
-                        raise ParseError(f"Line {i}: incomplete "
-                                         "hub definition")
+                    parts = zone_part.split()
+                    if len(parts) != 3:
+                        raise ParseError(f"Line {i}: invalid hub definition")
                     name = parts[0]
                     if "-" in name:
                         raise ParseError(f"Line {i}: Zone names cannot "
@@ -135,6 +155,11 @@ def parse_file(file_name: str) -> MapData:
                     except ValueError:
                         raise ParseError(f"Line {i}: coordinates must "
                                          "be integers")
+                    for zone in zones.values():
+                        if zone.x == x and zone.y == y:
+                            raise ParseError(
+                                f"Line {i}: another zone already "
+                                f"exists at coordinates ({x}, {y})")
                     zone_type_str = md.get("zone", "normal")
                     try:
                         zone_type = ZoneType(zone_type_str)
@@ -149,7 +174,6 @@ def parse_file(file_name: str) -> MapData:
                             name, x, y,
                             zone_type,
                             md.get("color"),
-                            max_drones=float("inf"),
                             is_start=True)
                         zones[name] = start_zone
                     elif key == "end_hub":
@@ -160,7 +184,6 @@ def parse_file(file_name: str) -> MapData:
                             name, x, y,
                             zone_type,
                             md.get("color"),
-                            max_drones=float("inf"),
                             is_end=True)
                         zones[name] = end_zone
                     elif key == "hub":
@@ -189,10 +212,24 @@ def parse_file(file_name: str) -> MapData:
             for i, lin in new_lines:
                 _, value = lin.split(":", 1)
                 value = value.strip()
-                parts = value.split()
-                if len(parts) > 1 and "[" not in value:
-                    raise ParseError(f"Line {i}: unexpected data "
-                                     "after connection definition")
+                j = value.find("[")
+                if j != -1:
+                    connection_part = value[:j].strip()
+                    metadata_str = value[j:]
+                else:
+                    connection_part = value
+                    metadata_str = ""
+                connection_part = connection_part.replace(" -", "-")
+                connection_part = connection_part.replace("- ", "-")
+
+                while " -" in connection_part or "- " in connection_part:
+                    connection_part = connection_part.replace(" -", "-")
+                    connection_part = connection_part.replace("- ", "-")
+                md = parse_metadata(metadata_str)
+                parts = connection_part.split()
+                if len(parts) != 1:
+                    raise ParseError(f"Line {i}: invalid connection "
+                                     "definition")
                 names = parts[0]
                 if "-" not in names:
                     raise ParseError(f"Line {i}: connection must be in "
@@ -200,18 +237,18 @@ def parse_file(file_name: str) -> MapData:
                 parts = names.split("-")
                 if len(parts) != 2:
                     raise ParseError(f"Line {i}: Invalid connection syntax")
-                j = value.find("[")
-                metadata_str = value[j:] if j != -1 else ""
-                md = parse_metadata(metadata_str)
                 allowed = {"max_link_capacity"}
                 for k in md:
                     if k not in allowed:
-                        raise ParseError(f"Line {i}: invalid metadata")
+                        raise ParseError(f"Line {i}: unknown metadata '{k}'")
                 zone1, zone2 = names.split("-")
                 if zone1 not in zones:
                     raise ParseError(f"Line {i}: unknown zone '{zone1}'")
                 if zone2 not in zones:
                     raise ParseError(f"Line {i}: unknown zone '{zone2}'")
+                if zone1 == zone2:
+                    raise ParseError(
+                        f"Line {i}: a zone cannot connect to itself")
                 for a in connections:
                     if (a.zone_a.name == zone1 and a.zone_b.name == zone2) or \
                        (a.zone_a.name == zone2 and a.zone_b.name == zone1):
