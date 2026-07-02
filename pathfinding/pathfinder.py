@@ -75,42 +75,55 @@ class Pathfinder:
         heap: list[tuple[int, int, int, Zone]] = []
         goal_state: tuple[Zone, int] | None = None
         heapq.heappush(heap, (0, 0, counter, start))
+        MAX_TIME = len(graph.zones) * 10
 
         while heap:
             current_cost, current_turn, _, current_zone = heapq.heappop(heap)
-
+            if current_turn > MAX_TIME:
+                continue
             state = (current_zone, current_turn)
             if current_cost > distances[state]:
                 continue
             if current_zone == end:
                 goal_state = state
                 break
-            neighbors = graph.get_neighbors(current_zone)
-            neighbors.append(current_zone)
-            for neighbor in neighbors:
-                move_cost = neighbor.get_movement_cost() \
-                    if neighbor != current_zone else 1
+
+            # ---------- WAIT ACTION ----------
+            wait_turn = current_turn + 1
+            new_cost = current_cost + 1
+            if wait_turn <= MAX_TIME:
+                if reservations.can_enter_zone(current_zone, wait_turn):
+                    wait_state = (current_zone, wait_turn)
+                    if (
+                        wait_state not in distances or
+                        new_cost < distances[wait_state]
+                    ):
+                        distances[wait_state] = new_cost
+                        previous[wait_state] = state
+                        counter += 1
+                        heapq.heappush(
+                            heap,
+                            (new_cost, wait_turn, counter, current_zone))
+
+            # ---------- MOVE ACTIONS ----------
+            for neighbor in graph.get_neighbors(current_zone):
+                connection = graph.get_connection(current_zone, neighbor)
+                if connection is None:
+                    continue
+                move_cost = neighbor.get_movement_cost()
                 arrival_turn = current_turn + move_cost
-                while True:
-                    if not reservations.can_enter_zone(neighbor, arrival_turn):
-                        arrival_turn += 1
-                        continue
-                    if neighbor != current_zone:
-                        connection = graph.get_connection(current_zone,
-                                                          neighbor)
-                        if connection is None:
-                            break
-                        if not reservations.can_use_connection(
-                            current_zone,
-                            neighbor,
-                            arrival_turn - move_cost,
-                            connection.max_link_capacity
-                        ):
-                            arrival_turn += 1
-                            continue
-                    break
+                if not reservations.can_enter_zone(neighbor, arrival_turn):
+                    continue
+                if not reservations.can_use_connection(
+                    current_zone,
+                    neighbor,
+                    current_turn,
+                    connection.max_link_capacity
+                ):
+                    continue
                 next_state = (neighbor, arrival_turn)
-                new_cost = arrival_turn
+                new_cost = current_cost + move_cost
+
                 if (
                     next_state not in distances or
                     new_cost < distances[next_state]
@@ -118,11 +131,9 @@ class Pathfinder:
                     distances[next_state] = new_cost
                     previous[next_state] = state
                     counter += 1
-                    heapq.heappush(heap, (
-                        new_cost,
-                        next_turn,
-                        counter,
-                        neighbor))
+                    heapq.heappush(
+                        heap,
+                        (new_cost, arrival_turn, counter, neighbor))
         if goal_state is None:
             return []
 
@@ -135,7 +146,7 @@ class Pathfinder:
     ) -> list[tuple[Zone, int]]:
 
         path: list[tuple[Zone, int]] = []
-        current = goal_state
+        current: tuple[Zone, int] | None = goal_state
         while current is not None:
             path.append(current)
             current = previous[current]
