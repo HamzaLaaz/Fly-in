@@ -19,9 +19,6 @@ class Connection:
         max_link_capacity (int):
             Maximum number of drones allowed on the connection
             simultaneously.
-
-        current_drones (int):
-            Number of drones currently crossing the connection.
     """
     def __init__(
         self,
@@ -33,4 +30,3 @@ class Connection:
         self.zone_a = zone_a
         self.zone_b = zone_b
         self.max_link_capacity = max_link_capacity
-        self.current_drones = 0
