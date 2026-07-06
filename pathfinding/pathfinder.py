@@ -23,35 +23,35 @@ class ReservationTable:
 
     def can_use_connection(
         self,
-        source: Zone,
-        destination: Zone,
+        c_zone: Zone,
+        n_zone: Zone,
         turn: int,
         capacity: int
     ) -> bool:
 
-        key = self._connection_key(source, destination, turn)
+        key = self._connection_key(c_zone, n_zone, turn)
         used = self.connection_table.get(key, 0)
         return used < capacity
 
     def reserve_connection(
         self,
-        source: Zone,
-        destination: Zone,
+        c_zone: Zone,
+        n_zone: Zone,
         turn: int
     ) -> None:
 
-        key = self._connection_key(source, destination, turn)
+        key = self._connection_key(c_zone, n_zone, turn)
         self.connection_table[key] = (self.connection_table.get(key, 0) + 1)
 
     def _connection_key(
         self,
-        source: Zone,
-        destination: Zone,
+        c_zone: Zone,
+        n_zone: Zone,
         turn: int
     ) -> tuple[str, str, int]:
 
-        a = min(source.name, destination.name)
-        b = max(source.name, destination.name)
+        a = min(c_zone.name, n_zone.name)
+        b = max(c_zone.name, n_zone.name)
         return (a, b, turn)
 
 
@@ -63,6 +63,7 @@ class Pathfinder:
         graph: Graph,
         start: Zone,
         end: Zone,
+        nb_drones: int,
         reservations: ReservationTable
     ) -> list[tuple[Zone, int]]:
 
@@ -75,11 +76,11 @@ class Pathfinder:
         heap: list[tuple[int, int, int, Zone]] = []
         goal_state: tuple[Zone, int] | None = None
         heapq.heappush(heap, (0, 0, counter, start))
-        MAX_TIME = len(graph.zones) * 10
+        MAX_TIME = len(graph.zones) * nb_drones * 2
 
         while heap:
             current_cost, current_turn, _, current_zone = heapq.heappop(heap)
-            if current_turn > MAX_TIME:
+            if current_turn >= MAX_TIME:
                 continue
             state = (current_zone, current_turn)
             if current_cost > distances[state]:
