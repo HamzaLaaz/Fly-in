@@ -1,55 +1,39 @@
-from enum import Enum
 from models.zone import Zone
 
 
-class DroneStatus(Enum):
-    """
-    Represents the possible states of a drone during the simulation.
-    """
-    WAITING = "waiting"
-    FLYING = "flying"
-    DELIVERED = "delivered"
-
-
 class Drone:
-    """
-    Represents a delivery drone in the simulation.
-    A drone has a unique identifier, a current location, a planned
-    path of zones to traverse, and a status indicating its current
-    activity.
+    """Represents a delivery drone in the simulation.
+
+    Args:
+        drone_id: Unique identifier of the drone.
+        current_zone: Current zone occupied by the drone, or None while
+            travelling on a connection.
+        path: Planned route as (zone, turn) pairs.
+
     Attributes:
-        id (int):
-            Unique identifier of the drone.
-        current_zone (Zone):
-            The zone where the drone is currently located.
-        path (list[Zone]):
-            Ordered list of zones that the drone will follow.
-        status (DroneStatus):
-            Current state of the drone.
+        drone_id: Unique identifier of the drone.
+        current_zone: Current zone occupied by the drone.
+        connection: Connection currently being traversed, if any.
+        path: Planned route as (zone, turn) pairs.
     """
     def __init__(
         self,
         drone_id: int,
-        current_zone: Zone,
-        path: list[Zone] | None = None,
-        status: DroneStatus = DroneStatus.WAITING,
+        current_zone: Zone | None,
+        path: list[tuple[Zone, int]] | None = None
     ) -> None:
         """
         Initialize a new Drone instance.
         Args:
-            id (int):
+            drone_id (int):
                 Unique identifier of the drone.
             current_zone (Zone):
                 Starting zone of the drone.
-            path (list[Zone] | None, optional):
-                Planned route for the drone. If None, an empty path
-                is created. Defaults to None.
-            status (DroneStatus, optional):
-                Initial status of the drone.
-                Defaults to DroneStatus.WAITING.
+            path (list[tuple[Zone, int]] | None):
+                Planned route consisting of (zone, turn) pairs.
+                Defaults to None.
         """
         self.drone_id = drone_id
-        self.current_zone = current_zone
+        self.current_zone: Zone | None = current_zone
+        self.connection: tuple[Zone, Zone] | None = None
         self.path = path if path is not None else []
-        self.status = status
-        self.path_index = 0
