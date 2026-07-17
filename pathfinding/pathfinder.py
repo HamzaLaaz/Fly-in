@@ -1,62 +1,16 @@
 import heapq
 from graph.graph import Graph
-from models.zone import Zone
-
-
-class ReservationTable:
-
-    def __init__(self) -> None:
-        self.zone_table: dict[tuple[str, int], int] = {}
-        self.connection_table: dict[tuple[str, str, int], int] = {}
-
-    def can_enter_zone(self, zone: Zone, turn: int) -> bool:
-
-        if zone.is_start or zone.is_end:
-            return True
-        result = self.zone_table.get((zone.name, turn), 0)
-        return result < zone.max_drones
-
-    def reserve(self, zone: Zone, turn: int) -> None:
-
-        key = (zone.name, turn)
-        self.zone_table[key] = (self.zone_table.get(key, 0) + 1)
-
-    def can_use_connection(
-        self,
-        c_zone: Zone,
-        n_zone: Zone,
-        turn: int,
-        capacity: int
-    ) -> bool:
-
-        key = self._connection_key(c_zone, n_zone, turn)
-        used = self.connection_table.get(key, 0)
-        return used < capacity
-
-    def reserve_connection(
-        self,
-        c_zone: Zone,
-        n_zone: Zone,
-        turn: int
-    ) -> None:
-
-        key = self._connection_key(c_zone, n_zone, turn)
-        self.connection_table[key] = (self.connection_table.get(key, 0) + 1)
-
-    def _connection_key(
-        self,
-        c_zone: Zone,
-        n_zone: Zone,
-        turn: int
-    ) -> tuple[str, str, int]:
-
-        a = min(c_zone.name, n_zone.name)
-        b = max(c_zone.name, n_zone.name)
-        return (a, b, turn)
+from models.zone import Zone, ZoneType
+from simulation.simulater import ReservationTable
 
 
 class Pathfinder:
-    """Find shortest path using Dijkstra."""
+    """
+    Finds paths for drones while respecting reservation rules.
+
+    Uses a Dijkstra-based search with reservations to avoid
+    conflicts between drones.
+    """
 
     def find_path(
         self,
@@ -64,92 +18,91 @@ class Pathfinder:
         start: Zone,
         end: Zone,
         nb_drones: int,
-        reservations: ReservationTable
-    ) -> list[tuple[Zone, int]]:
+        reservations: ReservationTable,
+    ) -> list[tuple[str, int]]:
+        """
+        Find a valid path from the start zone to the end zone.
 
-        start_state = (start, 0)
-        distances: dict[tuple[Zone, int], int] = {start_state: 0}
-        previous: dict[tuple[Zone, int], tuple[Zone, int] | None] = {
-            start_state: None
-        }
-        counter = 0
-        heap: list[tuple[int, int, int, Zone]] = []
-        goal_state: tuple[Zone, int] | None = None
-        heapq.heappush(heap, (0, 0, counter, start))
-        MAX_TIME = len(graph.zones) * nb_drones * 2
+        The search respects zone capacities, connection capacities,
+        restricted zones, and existing reservations.
+
+        Args:
+            graph: Graph containing all zones and connections.
+            start: Starting zone.
+            end: Destination zone.
+            nb_drones: Total number of drones in the simulation.
+            reservations: Reservation table used to avoid conflicts.
+
+        Returns:
+            A list of (zone_name, turn) pairs describing the path.
+            Returns an empty list if no valid path is found.
+        """
+        heap: list[tuple[int, int, str, list[tuple[str, int]]]] = []
+        path: list[tuple[str, int]] = []
+        start_zone = start.name
+        heapq.heappush(heap, (0, 0, start_zone, path))
+        max_time = len(graph.zones) * nb_drones * 2
+        visited: set[tuple[str, int]] = set()
 
         while heap:
-            current_cost, current_turn, _, current_zone = heapq.heappop(heap)
-            if current_turn >= MAX_TIME:
+
+            current_turn, _, current_zone, path = heapq.heappop(heap)
+            if current_turn >= max_time:
+                continue
+            ob_current_zone = graph.get_object_zone(current_zone)
+            if ob_current_zone is None:
                 continue
             state = (current_zone, current_turn)
-            if current_cost > distances[state]:
+            if state in visited:
                 continue
-            if current_zone == end:
-                goal_state = state
-                break
-
+            new_path = path + [state]
+            if current_zone == end.name:
+                return new_path
+            visited.add(state)
             # ---------- WAIT ACTION ----------
             wait_turn = current_turn + 1
-            new_cost = current_cost + 1
-            if wait_turn <= MAX_TIME:
-                if reservations.can_enter_zone(current_zone, wait_turn):
-                    wait_state = (current_zone, wait_turn)
-                    if (
-                        wait_state not in distances or
-                        new_cost < distances[wait_state]
-                    ):
-                        distances[wait_state] = new_cost
-                        previous[wait_state] = state
-                        counter += 1
-                        heapq.heappush(
-                            heap,
-                            (new_cost, wait_turn, counter, current_zone))
+
+            if (
+                wait_turn <= max_time
+                and reservations.can_enter_zone(ob_current_zone, wait_turn)
+            ):
+                priority = 0 if (
+                    ob_current_zone.zone_type == ZoneType.PRIORITY) else 1
+                heapq.heappush(heap, (wait_turn, priority,
+                                      current_zone, new_path))
 
             # ---------- MOVE ACTIONS ----------
-            for neighbor in graph.get_neighbors(current_zone):
-                connection = graph.get_connection(current_zone, neighbor)
+
+            for neighbor in graph.get_neighbors(ob_current_zone):
+                arrival_turn = neighbor.get_movement_cost()
+                new_turn = current_turn + arrival_turn
+                neighbor_state = (neighbor.name, new_turn)
+                if neighbor_state in visited:
+                    continue
+                connection = graph.get_connection(ob_current_zone, neighbor)
                 if connection is None:
                     continue
-                move_cost = neighbor.get_movement_cost()
-                arrival_turn = current_turn + move_cost
-                if not reservations.can_enter_zone(neighbor, arrival_turn):
+
+                if not reservations.can_enter_zone(neighbor, new_turn):
                     continue
-                if not reservations.can_use_connection(
-                    current_zone,
-                    neighbor,
-                    current_turn,
-                    connection.max_link_capacity
-                ):
+                connection_ok = True
+
+                for t in range(current_turn + 1,
+                               current_turn + arrival_turn + 1):
+                    if not reservations.can_use_connection(
+                        ob_current_zone,
+                        neighbor,
+                        t,
+                        connection.max_link_capacity
+                    ):
+                        connection_ok = False
+                        break
+
+                if not connection_ok:
                     continue
-                next_state = (neighbor, arrival_turn)
-                new_cost = current_cost + move_cost
+                priority = 0 if neighbor.zone_type == ZoneType.PRIORITY else 1
 
-                if (
-                    next_state not in distances or
-                    new_cost < distances[next_state]
-                ):
-                    distances[next_state] = new_cost
-                    previous[next_state] = state
-                    counter += 1
-                    heapq.heappush(
-                        heap,
-                        (new_cost, arrival_turn, counter, neighbor))
-        if goal_state is None:
-            return []
-
-        return self._build_path(previous, goal_state)
-
-    def _build_path(
-        self,
-        previous: dict[tuple[Zone, int], tuple[Zone, int] | None],
-        goal_state: tuple[Zone, int]
-    ) -> list[tuple[Zone, int]]:
-
-        path: list[tuple[Zone, int]] = []
-        current: tuple[Zone, int] | None = goal_state
-        while current is not None:
-            path.append(current)
-            current = previous[current]
-        path.reverse()
-        return path
+                heapq.heappush(
+                    heap,
+                    (new_turn, priority, neighbor.name,  new_path))
+        return []
