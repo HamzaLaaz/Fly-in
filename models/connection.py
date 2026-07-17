@@ -2,22 +2,18 @@ from models.zone import Zone
 
 
 class Connection:
-    """
-    Represents a connection between two zones in the simulation.
+    """Represents a bidirectional connection between two zones.
 
-    A connection acts like a road or tunnel linking two Zone objects.
-    It has a maximum capacity that limits how many drones can use
-    the connection at the same time.
+    Args:
+        zone_a: First connected zone.
+        zone_b: Second connected zone.
+        max_link_capacity: Maximum number of drones that may use the
+            connection simultaneously.
 
     Attributes:
-        zone_a (Zone):
-            The first connected zone.
-
-        zone_b (Zone):
-            The second connected zone.
-
-        max_link_capacity (int):
-            Maximum number of drones allowed on the connection
+        zone_a: First connected zone.
+        zone_b: Second connected zone.
+        max_link_capacity: Maximum number of drones allowed
             simultaneously.
     """
     def __init__(
