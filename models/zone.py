@@ -23,9 +23,14 @@ class Zone:
         is_end: True if this is the destination zone.
 
     Attributes:
-        current_drones: Current number of drones in the zone.
-        is_start: Whether this zone is the simulation start point.
-        is_end: Whether this zone is the simulation end point.
+        name: Zone name.
+        x: X coordinate.
+        y: Y coordinate.
+        zone_type: Type of the zone.
+        color: Display color.
+        max_drones: Maximum allowed drones.
+        is_start: Whether this is the start zone.
+        is_end: Whether this is the end zone.
     """
     def __init__(
         self,
@@ -45,7 +50,6 @@ class Zone:
         self.max_drones = max_drones
         self.is_start = is_start
         self.is_end = is_end
-        self.current_drones = 0
 
     def get_movement_cost(self) -> int:
         """Return the turn cost to enter this zone."""
