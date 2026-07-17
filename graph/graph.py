@@ -6,9 +6,13 @@ class Graph:
     """
     Represents an undirected graph of zones connected by connections.
 
-    Attributes:
+    Args:
         zones: Dictionary mapping zone names to Zone objects.
         connections: List of connections between zones.
+
+    Attributes:
+        zones: Dictionary mapping zone names to Zone objects.
+        connections: List of graph connections.
     """
     def __init__(self, zones: dict[str, Zone],
                  connections: list[Connection]) -> None:
@@ -42,18 +46,6 @@ class Graph:
                     neighbors.append(connection.zone_a)
         return neighbors
 
-    def get_zone(self, name: str) -> Zone | None:
-        """
-        Retrieve a zone by its name.
-
-        Args:
-            name: Name of the zone.
-
-        Returns:
-            The corresponding Zone object if found, otherwise None.
-        """
-        return self.zones.get(name)
-
     def get_connection(self, zone_a: Zone, zone_b: Zone) -> Connection | None:
         """
         Find the connection between two zones.
@@ -69,8 +61,23 @@ class Graph:
             The Connection object linking the two zones, or None
             if no connection exists.
         """
-        for conct in self.connections:
-            if (conct.zone_a == zone_a and conct.zone_b == zone_b) or \
-               (conct.zone_a == zone_b and conct.zone_b == zone_a):
-                return conct
+        for conn in self.connections:
+            if (conn.zone_a == zone_a and conn.zone_b == zone_b) or \
+               (conn.zone_a == zone_b and conn.zone_b == zone_a):
+                return conn
+        return None
+
+    def get_object_zone(self, name: str) -> Zone | None:
+        """
+        Return the zone with the given name.
+
+        Args:
+            name: Name of the zone.
+
+        Returns:
+            The matching Zone object, or None if it does not exist.
+        """
+        for zone_name, zone in self.zones.items():
+            if name == zone_name:
+                return zone
         return None
